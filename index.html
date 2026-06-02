@@ -238,6 +238,12 @@
   .floatbar .fb-item .v.bad{color:var(--bad)}
   .floatbar .fb-nav{margin-left:auto;display:flex;gap:10px}
 
+  /* ---------- Per-step document action ---------- */
+  .step-doc{margin-top:8px;padding:18px;border:1px solid var(--hairline);border-radius:13px;background:linear-gradient(180deg,rgba(196,162,78,.07),rgba(20,37,68,.4));display:flex;align-items:center;gap:16px;justify-content:space-between;flex-wrap:wrap}
+  .step-doc .sd-txt{font-size:12.5px;color:var(--muted);max-width:46ch;line-height:1.5}
+  .step-doc .sd-txt b{color:var(--gold-light);font-weight:700;display:block;font-family:var(--serif);font-size:14px;margin-bottom:2px}
+  .step-doc .btn{flex:none}
+
   /* ---------- Saved list / modal ---------- */
   .overlay{position:fixed;inset:0;background:rgba(8,15,30,.7);backdrop-filter:blur(3px);z-index:60;display:none;align-items:center;justify-content:center;padding:24px}
   .overlay.show{display:flex}
@@ -296,9 +302,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5zM8 3v6h7"/></svg>
         Enregistrer
       </button>
-      <button class="btn gold sm" onclick="goReport()">
+      <button class="btn gold sm" onclick="goReport('full')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6"/></svg>
-        Rapport PDF
+        Dossier complet
       </button>
     </div>
   </div>
@@ -899,112 +905,185 @@ function toast(msg,warn){
 }
 
 /* ---- Report (print to PDF) ---- */
-function goReport(){
-  if(!document.getElementById('f_nom').value){alert('Renseignez le nom du candidat avant de générer le rapport.');showStep(0);return;}
-  recalc(); buildReport(); window.print();
+const REPORT_SCOPES = {
+  full:      {title:"Rapport d'\u00e9valuation complet", file:"dossier-complet"},
+  identity:  {title:"Fiche d'ouverture de dossier",     file:"fiche-ouverture"},
+  prereq:    {title:"V\u00e9rification des pr\u00e9requis",        file:"prerequis"},
+  oral:      {title:"Proc\u00e8s-verbal d'\u00e9preuve orale",     file:"epreuve-orale"},
+  terrain:   {title:"Rapport de supervision terrain",    file:"supervision-terrain"},
+  synthesis: {title:"Avis de titularisation",            file:"avis-titularisation"},
+};
+function goReport(scope){
+  scope = scope || 'full';
+  if(!document.getElementById('f_nom').value){alert('Renseignez au moins le nom du candidat avant de g\u00e9n\u00e9rer le document.');showStep(0);return;}
+  recalc(); buildReport(scope);
+  const prev=document.title, m=gather().meta;
+  const slug=(m.f_mat||m.f_nom||'candidat').replace(/[^\w\-]+/g,'_');
+  document.title='SAB_'+REPORT_SCOPES[scope].file+'_'+slug;
+  window.print();
+  setTimeout(()=>{document.title=prev;},600);
 }
-function fmtDate(s){if(!s)return '—';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});}
+function fmtDate(s){if(!s)return '\u2014';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-function buildReport(){
-  const d=gather(); const c=window.__calc;
-  const pStatus = d.prereq;
-  const prereqRows = PREREQS.map(p=>{
-    const v=pStatus[p.id]?.val||'—';
-    const col=v==='Acquis'?'#1f7a44':v==='Partiel'?'#9a7415':v==='Non acquis'?'#a83232':'#666';
-    return `<tr><td><b>${p.label}</b>${pStatus[p.id]?.note?'<br><span style="color:#555;font-size:11px">'+esc(pStatus[p.id].note)+'</span>':''}</td><td style="text-align:right;color:${col};font-weight:700">${v}</td></tr>`;
-  }).join('');
-  const presRows = PRES_CRIT.map(c2=>`<tr><td>${c2.label}</td><td style="text-align:right;font-weight:700">${d.pres[c2.id]||0} / 5</td></tr>`).join('');
-  const scRows = d.scenarios.length? d.scenarios.map(s=>`<tr><td><b>${esc(s.name)}</b>${s.note?'<br><span style="color:#555;font-size:11px">'+esc(s.note)+'</span>':''}</td><td style="text-align:right;font-weight:700">${s.score||0} / 20</td></tr>`).join('') : '<tr><td colspan="2" style="color:#888">Aucun scénario évalué</td></tr>';
-  const phaseRows = PHASES.map(p=>{
-    const v=d.phases[p.id]?.val||'Non évaluée';
-    const col=v==='Acquise'?'#1f7a44':v==='Insuffisante'?'#a83232':v==='En cours'?'#9a7415':'#666';
-    return `<tr><td><b>${p.title}</b>${d.phases[p.id]?.note?'<br><span style="color:#555;font-size:11px">'+esc(d.phases[p.id].note)+'</span>':''}</td><td style="text-align:right;color:${col};font-weight:700">${v}</td></tr>`;
-  }).join('');
-  const faultsActive=[...ORAL_FAULTS,...FIELD_FAULTS].filter(f=>d.oralFaults[f.id]||d.fieldFaults[f.id]);
-  const faultBlock = faultsActive.length? `<div style="border:1px solid #a83232;background:#fbeaea;border-radius:6px;padding:12px 16px;margin-top:6px"><b style="color:#a83232">Fautes éliminatoires relevées :</b><ul style="margin:6px 0 0 18px">${faultsActive.map(f=>'<li>'+f.t+'</li>').join('')}</ul></div>` : '<div style="color:#1f7a44;font-weight:600">Aucune faute éliminatoire relevée.</div>';
-
-  const decision = d.decision || c.reco;
-  const decCol = decision.startsWith('FAVORABLE ')||decision.startsWith('FAVORABLE —')?'#1f7a44':decision.startsWith('FAVORABLE SOUS')?'#9a7415':decision.startsWith('AJOURNEMENT')?'#9a7415':'#a83232';
-
-  document.getElementById('report').innerHTML=`
-  <div style="font-family:'Spectral',Georgia,serif;color:#1a1a1a;max-width:800px;margin:0 auto;padding:8px 6px">
-    <!-- header -->
-    <div style="display:flex;align-items:center;gap:18px;border-bottom:3px solid #16294a;padding-bottom:16px">
+/* ---- Composable report blocks ---- */
+function repHeader(subtitle){
+  return `<div style="display:flex;align-items:center;gap:18px;border-bottom:3px solid #16294a;padding-bottom:16px">
       <div style="width:74px;height:74px"><img src="logo.png" width="74" height="74" style="object-fit:contain" alt="SAB seal"></div>
       <div style="flex:1">
-        <div style="font-size:11px;letter-spacing:3px;color:#a8862f;font-weight:700;font-family:Archivo,sans-serif">DEPARTMENT OF JUSTICE · ÉTAT DE SAN ANDREAS</div>
+        <div style="font-size:11px;letter-spacing:3px;color:#a8862f;font-weight:700;font-family:Archivo,sans-serif">DEPARTMENT OF JUSTICE \u00b7 \u00c9TAT DE SAN ANDREAS</div>
         <h1 style="font-size:23px;margin:4px 0;color:#16294a">Special Agent Bureau</h1>
-        <div style="font-size:13px;color:#444;font-family:Archivo,sans-serif">Rapport d'évaluation — Formation des trainees</div>
+        <div style="font-size:13px;color:#444;font-family:Archivo,sans-serif">${subtitle}</div>
       </div>
       <div style="text-align:right;font-family:Archivo,sans-serif;font-size:10px;color:#999">
         <div style="border:1px solid #a83232;color:#a83232;padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:1px">CONFIDENTIEL</div>
-        <div style="margin-top:6px">Édité le ${new Date().toLocaleDateString('fr-FR')}</div>
+        <div style="margin-top:6px">\u00c9dit\u00e9 le ${new Date().toLocaleDateString('fr-FR')}</div>
       </div>
-    </div>
-
-    <!-- candidate -->
-    <table style="width:100%;border-collapse:collapse;margin-top:18px;font-family:Archivo,sans-serif;font-size:12.5px">
+    </div>`;
+}
+function repIdentity(d){
+  return `<table style="width:100%;border-collapse:collapse;margin-top:18px;font-family:Archivo,sans-serif;font-size:12.5px">
       <tr>
-        <td style="padding:5px 0;width:50%"><span style="color:#888">Candidat</span><br><b style="font-size:15px;font-family:Spectral,serif">${esc(d.meta.f_nom)||'—'}</b></td>
-        <td style="padding:5px 0"><span style="color:#888">Matricule / N° dossier</span><br><b>${esc(d.meta.f_mat)||'—'}</b></td>
+        <td style="padding:5px 0;width:50%"><span style="color:#888">Candidat</span><br><b style="font-size:15px;font-family:Spectral,serif">${esc(d.meta.f_nom)||'\u2014'}</b></td>
+        <td style="padding:5px 0"><span style="color:#888">Matricule / N\u00b0 dossier</span><br><b>${esc(d.meta.f_mat)||'\u2014'}</b></td>
       </tr>
       <tr>
-        <td style="padding:5px 0"><span style="color:#888">Date d'évaluation</span><br><b>${fmtDate(d.meta.f_date)}</b></td>
-        <td style="padding:5px 0"><span style="color:#888">Antécédents</span><br><b>${esc(d.meta.f_anteced)||'Non renseigné'}</b></td>
+        <td style="padding:5px 0"><span style="color:#888">Date d'\u00e9valuation</span><br><b>${fmtDate(d.meta.f_date)}</b></td>
+        <td style="padding:5px 0"><span style="color:#888">Ant\u00e9c\u00e9dents</span><br><b>${esc(d.meta.f_anteced)||'Non renseign\u00e9'}</b></td>
       </tr>
       <tr>
-        <td style="padding:5px 0"><span style="color:#888">Instructeur certifié</span><br><b>${esc(d.meta.f_ic)||'—'}</b></td>
-        <td style="padding:5px 0"><span style="color:#888">Co-évaluateur</span><br><b>${esc(d.meta.f_ic2)||'—'}</b></td>
+        <td style="padding:5px 0"><span style="color:#888">Instructeur certifi\u00e9</span><br><b>${esc(d.meta.f_ic)||'\u2014'}</b></td>
+        <td style="padding:5px 0"><span style="color:#888">Co-\u00e9valuateur</span><br><b>${esc(d.meta.f_ic2)||'\u2014'}</b></td>
       </tr>
+    </table>`;
+}
+function repSession(d){
+  return `${sectionTitle('Informations de session')}
+    <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}
+      <tr><td>Type de session</td><td style="text-align:right;font-weight:700">${esc(d.meta.f_type)||'\u2014'}</td></tr>
+      <tr><td>Lieu / Division</td><td style="text-align:right;font-weight:700">${esc(d.meta.f_lieu)||'\u2014'}</td></tr>
     </table>
-
-    <!-- verdict banner -->
-    <div style="margin-top:20px;border:2px solid ${decCol};border-radius:8px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:#fafafa">
+    <div style="font-family:Archivo,sans-serif;font-size:11px;color:#777;margin-top:14px;font-style:italic">Fiche d'ouverture \u2014 dossier d'\u00e9valuation enregistr\u00e9 et archiv\u00e9 conform\u00e9ment aux proc\u00e9dures internes du SAB.</div>`;
+}
+function repVerdict(d,c,decision,decCol){
+  return `<div style="margin-top:20px;border:2px solid ${decCol};border-radius:8px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:#fafafa">
       <div><div style="font-size:10px;letter-spacing:2px;color:#888;font-family:Archivo,sans-serif;font-weight:700">AVIS DE TITULARISATION</div><div style="font-size:22px;font-weight:700;color:${decCol};margin-top:4px">${decision}</div></div>
       <div style="text-align:right"><div style="font-size:11px;color:#888;font-family:Archivo,sans-serif">Oral global</div><div style="font-size:30px;font-weight:700;color:#16294a">${c.oralGlobal.toFixed(1)}<span style="font-size:15px;color:#aaa">/20</span></div></div>
+    </div>`;
+}
+function repPrereq(d){
+  const rows = PREREQS.map(p=>{
+    const v=d.prereq[p.id]?.val||'\u2014';
+    const col=v==='Acquis'?'#1f7a44':v==='Partiel'?'#9a7415':v==='Non acquis'?'#a83232':'#666';
+    return `<tr><td><b>${p.label}</b>${d.prereq[p.id]?.note?'<br><span style="color:#555;font-size:11px">'+esc(d.prereq[p.id].note)+'</span>':''}</td><td style="text-align:right;color:${col};font-weight:700">${v}</td></tr>`;
+  }).join('');
+  return `${sectionTitle('V\u00e9rification des pr\u00e9requis')}
+    <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${rows}</table>
+    <div style="font-family:Archivo,sans-serif;font-size:11px;color:#777;margin-top:10px;font-style:italic">CEVITAL, ISTC et amendements constitutionnels sont obligatoires. L'ant\u00e9c\u00e9dent en forces de l'ordre / s\u00e9curit\u00e9 priv\u00e9e est conseill\u00e9, non \u00e9liminatoire.</div>`;
+}
+function repOral(d,c){
+  const presRows = PRES_CRIT.map(c2=>`<tr><td>${c2.label}</td><td style="text-align:right;font-weight:700">${d.pres[c2.id]||0} / 5</td></tr>`).join('');
+  const scRows = d.scenarios.length? d.scenarios.map(s=>`<tr><td><b>${esc(s.name)}</b>${s.note?'<br><span style="color:#555;font-size:11px">'+esc(s.note)+'</span>':''}</td><td style="text-align:right;font-weight:700">${s.score||0} / 20</td></tr>`).join('') : '<tr><td colspan="2" style="color:#888">Aucun sc\u00e9nario \u00e9valu\u00e9</td></tr>';
+  const ofa = ORAL_FAULTS.filter(f=>d.oralFaults[f.id]);
+  const ofBlock = ofa.length? `<div style="border:1px solid #a83232;background:#fbeaea;border-radius:6px;padding:10px 14px;margin-top:10px"><b style="color:#a83232">Fautes \u00e9liminatoires (oral)\u00a0:</b><ul style="margin:5px 0 0 18px">${ofa.map(f=>'<li>'+f.t+'</li>').join('')}</ul></div>` : '';
+  return `${sectionTitle('\u00c9preuve orale')}
+    <div style="display:flex;justify-content:space-between;align-items:center;background:#f4f4f4;border-radius:6px;padding:10px 16px;font-family:Archivo,sans-serif;margin-bottom:10px">
+      <span style="font-size:12px;color:#666;font-weight:700;letter-spacing:1px">ORAL GLOBAL</span>
+      <span style="font-size:24px;font-weight:700;color:#16294a">${c.oralGlobal.toFixed(1)}<span style="font-size:13px;color:#aaa">/20</span></span>
     </div>
-
-    ${sectionTitle('1. Vérification des prérequis')}
-    <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${prereqRows}</table>
-
-    ${sectionTitle('2. Épreuve orale')}
-    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:8px 0 4px">A. Présentation — ${c.presTotal}/20</div>
+    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:8px 0 4px">A. Pr\u00e9sentation \u2014 ${c.presTotal}/20</div>
     <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${presRows}</table>
-    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:14px 0 4px">B. Connaissances — ${c.conn}/20</div>
+    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:14px 0 4px">B. Connaissances \u2014 ${c.conn}/20</div>
     ${d.conn.note?'<div style="font-family:Archivo,sans-serif;font-size:12px;color:#444;background:#f4f4f4;padding:9px 12px;border-radius:5px">'+esc(d.conn.note)+'</div>':''}
-    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:14px 0 4px">C. Mises en situation — ${c.scN?c.scAvg.toFixed(1):'0'}/20</div>
+    <div style="font-family:Archivo,sans-serif;font-size:12px;color:#16294a;font-weight:700;margin:14px 0 4px">C. Mises en situation \u2014 ${c.scN?c.scAvg.toFixed(1):'0'}/20</div>
     <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${scRows}</table>
-
-    ${sectionTitle('3. Terrain & supervision')}
-    <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${phaseRows}</table>
-    ${d.terrain?'<div style="font-family:Archivo,sans-serif;font-size:12px;color:#444;background:#f4f4f4;padding:10px 13px;border-radius:5px;margin-top:8px"><b>Rapport de fin de stage :</b><br>'+esc(d.terrain)+'</div>':''}
-
-    ${sectionTitle('4. Conformité — fautes éliminatoires')}
-    ${faultBlock}
-
-    ${sectionTitle('5. Décision finale de l\'instructeur')}
+    ${ofBlock}`;
+}
+function repTerrain(d){
+  const rows = PHASES.map(p=>{
+    const v=d.phases[p.id]?.val||'Non \u00e9valu\u00e9e';
+    const col=v==='Acquise'?'#1f7a44':v==='Insuffisante'?'#a83232':v==='En cours'?'#9a7415':'#666';
+    return `<tr><td><b>${p.title}</b>${d.phases[p.id]?.note?'<br><span style="color:#555;font-size:11px">'+esc(d.phases[p.id].note)+'</span>':''}</td><td style="text-align:right;color:${col};font-weight:700">${v}</td></tr>`;
+  }).join('');
+  const ffa = FIELD_FAULTS.filter(f=>d.fieldFaults[f.id]);
+  const ffBlock = ffa.length? `<div style="border:1px solid #a83232;background:#fbeaea;border-radius:6px;padding:10px 14px;margin-top:10px"><b style="color:#a83232">Crit\u00e8res non n\u00e9gociables enfreints\u00a0:</b><ul style="margin:5px 0 0 18px">${ffa.map(f=>'<li>'+f.t+'</li>').join('')}</ul></div>` : '<div style="color:#1f7a44;font-weight:600;font-family:Archivo,sans-serif;font-size:12px;margin-top:8px">Aucun crit\u00e8re non n\u00e9gociable enfreint.</div>';
+  return `${sectionTitle('Terrain & supervision')}
+    <table style="width:100%;border-collapse:collapse;font-family:Archivo,sans-serif;font-size:12.5px">${reportTableStyle()}${rows}</table>
+    ${d.terrain?'<div style="font-family:Archivo,sans-serif;font-size:12px;color:#444;background:#f4f4f4;padding:10px 13px;border-radius:5px;margin-top:8px"><b>Rapport de fin de stage\u00a0:</b><br>'+esc(d.terrain)+'</div>':''}
+    ${ffBlock}`;
+}
+function repStatsRecap(c){
+  const cell=(v,l)=>`<td style="text-align:center;border:1px solid #e0e0e0;padding:10px"><div style="font-size:22px;font-weight:700;color:#16294a;font-family:Spectral,serif">${v}</div><div style="font-size:10px;color:#888;letter-spacing:1px;text-transform:uppercase;font-family:Archivo,sans-serif">${l}</div></td>`;
+  return `${sectionTitle('R\u00e9capitulatif chiffr\u00e9')}
+    <table style="width:100%;border-collapse:collapse"><tr>${cell(c.oralGlobal.toFixed(1)+'/20','Oral global')}${cell(c.presTotal+'/20','Pr\u00e9sentation')}${cell(c.prereqOk+'/3','Pr\u00e9requis')}${cell(c.flags,'Fautes \u00e9lim.')}</tr></table>`;
+}
+function repDecision(d,c,decision,decCol){
+  return `${sectionTitle('D\u00e9cision finale de l\'instructeur')}
     <div style="font-family:Archivo,sans-serif;font-size:12.5px">
       <div style="font-weight:700;color:${decCol};font-size:15px">${decision}</div>
       ${d.decisionNote?'<div style="margin-top:6px;color:#333;line-height:1.55">'+esc(d.decisionNote)+'</div>':''}
-      <div style="margin-top:8px;color:#777;font-size:11px;font-style:italic">Recommandation calculée par le système : ${c.reco} — ${esc(c.reason)}</div>
-    </div>
-
-    <!-- signatures -->
-    <div style="display:flex;gap:40px;margin-top:40px;font-family:Archivo,sans-serif;font-size:11px;color:#666">
-      <div style="flex:1;border-top:1px solid #333;padding-top:6px">Instructeur certifié<br><b style="color:#1a1a1a;font-size:12px">${esc(d.meta.f_ic)||'________________'}</b></div>
+      <div style="margin-top:8px;color:#777;font-size:11px;font-style:italic">Recommandation calcul\u00e9e par le syst\u00e8me\u00a0: ${c.reco} \u2014 ${esc(c.reason)}</div>
+    </div>`;
+}
+function repSignatures(d){
+  return `<div style="display:flex;gap:40px;margin-top:40px;font-family:Archivo,sans-serif;font-size:11px;color:#666">
+      <div style="flex:1;border-top:1px solid #333;padding-top:6px">Instructeur certifi\u00e9<br><b style="color:#1a1a1a;font-size:12px">${esc(d.meta.f_ic)||'________________'}</b></div>
       <div style="flex:1;border-top:1px solid #333;padding-top:6px">Contresignature<br><b style="color:#1a1a1a;font-size:12px">${esc(d.meta.f_ic2)||'________________'}</b></div>
     </div>
     <div style="text-align:center;margin-top:30px;font-family:Archivo,sans-serif;font-size:9px;letter-spacing:2px;color:#aaa;border-top:1px solid #ddd;padding-top:12px">
-      JUSTICE · SERVICE · PROTECTION — DOCUMENT INTERNE CONFIDENTIEL — SPECIAL AGENT BUREAU
-    </div>
+      JUSTICE \u00b7 SERVICE \u00b7 PROTECTION \u2014 DOCUMENT INTERNE CONFIDENTIEL \u2014 SPECIAL AGENT BUREAU
+    </div>`;
+}
+
+function buildReport(scope){
+  const d=gather(); const c=window.__calc;
+  const decision = d.decision || c.reco;
+  const decCol = decision.startsWith('FAVORABLE ')||decision.startsWith('FAVORABLE \u2014')?'#1f7a44':decision.startsWith('FAVORABLE SOUS')?'#9a7415':decision.startsWith('AJOURNEMENT')?'#9a7415':'#a83232';
+  const sc = REPORT_SCOPES[scope]||REPORT_SCOPES.full;
+
+  let body='';
+  if(scope==='identity')        body = repSession(d);
+  else if(scope==='prereq')     body = repPrereq(d);
+  else if(scope==='oral')       body = repOral(d,c);
+  else if(scope==='terrain')    body = repTerrain(d);
+  else if(scope==='synthesis')  body = repVerdict(d,c,decision,decCol)+repStatsRecap(c)+repDecision(d,c,decision,decCol);
+  else                          body = repVerdict(d,c,decision,decCol)+repPrereq(d)+repOral(d,c)+repTerrain(d)+repDecision(d,c,decision,decCol);
+
+  document.getElementById('report').innerHTML=`
+  <div style="font-family:'Spectral',Georgia,serif;color:#1a1a1a;max-width:800px;margin:0 auto;padding:8px 6px">
+    ${repHeader(sc.title)}
+    ${repIdentity(d)}
+    ${body}
+    ${repSignatures(d)}
   </div>`;
 }
 function sectionTitle(t){return `<div style="font-family:Spectral,serif;font-size:15px;font-weight:700;color:#16294a;border-bottom:1px solid #16294a;margin:22px 0 8px;padding-bottom:4px">${t}</div>`;}
 function reportTableStyle(){return `<style>#report td{padding:6px 4px;border-bottom:1px solid #e6e6e6;vertical-align:top}</style>`;}
 
+/* ---- Per-step document buttons ---- */
+const STEP_DOCS = [
+  {scope:'identity',  label:"G\u00e9n\u00e9rer la fiche d'ouverture", txt:"Fiche d'ouverture du dossier"},
+  {scope:'prereq',    label:"G\u00e9n\u00e9rer le document des pr\u00e9requis", txt:"Attestation de v\u00e9rification des pr\u00e9requis"},
+  {scope:'oral',      label:"G\u00e9n\u00e9rer le PV d'\u00e9preuve orale", txt:"Proc\u00e8s-verbal de l'\u00e9preuve orale"},
+  {scope:'terrain',   label:"G\u00e9n\u00e9rer le rapport de terrain", txt:"Rapport de supervision sur le terrain"},
+  {scope:'synthesis', label:"G\u00e9n\u00e9rer l'avis de titularisation", txt:"Avis de titularisation"},
+];
+function injectStepDocs(){
+  document.querySelectorAll('.panel').forEach(panel=>{
+    const cfg=STEP_DOCS[+panel.dataset.panel]; if(!cfg) return;
+    const div=document.createElement('div');
+    div.className='step-doc';
+    div.innerHTML=`<div class="sd-txt"><b>${cfg.txt}</b>Document autonome de cette \u00e9tape \u2014 en-t\u00eate officiel, identit\u00e9 du candidat et signatures inclus.</div>
+      <button class="btn gold" onclick="goReport('${cfg.scope}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6"/></svg>
+        ${cfg.label}
+      </button>`;
+    panel.appendChild(div);
+  });
+}
+
 /* ---- Init ---- */
-renderPrereqs(); renderPres(); renderFaults(); renderPhases();
+renderPrereqs(); renderPres(); renderFaults(); renderPhases(); injectStepDocs();
 document.getElementById('f_date').valueAsDate=new Date();
 addScenario('Protection rapprochée — DOJ');
 addScenario('Contrôle d\'un suspect (calme → hostile)');
