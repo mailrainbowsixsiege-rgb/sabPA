@@ -277,7 +277,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
-      <div class="seal-sm" id="sealSlot"></div>
+      <img src="logo.png" class="seal-sm" alt="SAB seal" style="object-fit:contain">
       <div class="brand-txt">
         <h1>Special Agent Bureau</h1>
         <span>Système d'Évaluation des Trainees · DOJ</span>
@@ -555,7 +555,7 @@ function sealSVG(size){
     <text x="100" y="131" font-family="Georgia,serif" font-size="6.2" letter-spacing="1" fill="#93a1bd" text-anchor="middle">SAN ANDREAS</text>
   </svg>`;
 }
-document.getElementById('sealSlot').innerHTML = sealSVG(46);
+
 
 /* ---- Config data ---- */
 const PREREQS = [
@@ -931,7 +931,7 @@ function buildReport(){
   <div style="font-family:'Spectral',Georgia,serif;color:#1a1a1a;max-width:800px;margin:0 auto;padding:8px 6px">
     <!-- header -->
     <div style="display:flex;align-items:center;gap:18px;border-bottom:3px solid #16294a;padding-bottom:16px">
-      <div style="width:74px;height:74px">${sealSVG(74)}</div>
+      <div style="width:74px;height:74px"><img src="logo.png" width="74" height="74" style="object-fit:contain" alt="SAB seal"></div>
       <div style="flex:1">
         <div style="font-size:11px;letter-spacing:3px;color:#a8862f;font-weight:700;font-family:Archivo,sans-serif">DEPARTMENT OF JUSTICE · ÉTAT DE SAN ANDREAS</div>
         <h1 style="font-size:23px;margin:4px 0;color:#16294a">Special Agent Bureau</h1>
